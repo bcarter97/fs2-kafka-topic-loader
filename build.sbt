@@ -1,33 +1,32 @@
 import Dependencies.*
 
-lazy val scala3                 = "3.9.0"
-lazy val supportedScalaVersions = List(scala3)
-lazy val scmUrl                 = "https://github.com/bcarter97/fs2-kafka-topic-loader"
+lazy val scmUrl = "https://github.com/bcarter97/fs2-kafka-topic-loader"
 
-ThisBuild / organization  := "io.github.bcarter97"
-ThisBuild / description   := "Read the contents of provided Kafka topics"
-ThisBuild / licenses      := List("BSD New" -> url("https://opensource.org/licenses/BSD-3-Clause"))
-ThisBuild / homepage      := Some(url(scmUrl))
-ThisBuild / scmInfo       := Some(ScmInfo(url(scmUrl), "scm:git@github.com:bcarter97/fs2-kafka-topic-loader.git"))
-ThisBuild / versionScheme := Some("early-semver")
-ThisBuild / developers    := List(
+organization  := "io.github.bcarter97"
+description   := "Read the contents of provided Kafka topics"
+licenses      := List(License("BSD-3-Clause", uri("https://opensource.org/licenses/BSD-3-Clause")))
+homepage      := Some(uri(scmUrl))
+scmInfo       := Some(ScmInfo(uri(scmUrl), "scm:git@github.com:bcarter97/fs2-kafka-topic-loader.git"))
+versionScheme := Some("early-semver")
+developers    := List(
   Developer(
     "bcarter97",
     "Ben Carter",
     "benjohn.carter@gmail.com",
-    url("https://github.com/bcarter97")
+    uri("https://github.com/bcarter97")
   )
 )
 
-ThisBuild / semanticdbEnabled := true
-ThisBuild / semanticdbVersion := scalafixSemanticdb.revision
+scalaVersion      := "3.9.0"
+semanticdbEnabled := true
+semanticdbVersion := scalafixSemanticdb.revision
+CommonSettings.default
 
-lazy val root = (project in file("."))
+lazy val root = rootProject.autoAggregate
   .settings(
-    name               := "fs2-kafka-topic-loader",
-    scalaVersion       := scala3,
-    crossScalaVersions := supportedScalaVersions,
-    CommonSettings.default,
+    name                     := "fs2-kafka-topic-loader",
+    Test / parallelExecution := false,
+    Test / fork              := true,
     libraryDependencies ++= Seq(
       Cats.core,
       Cats.effect,
@@ -44,14 +43,9 @@ lazy val root = (project in file("."))
 
 lazy val it = (project in file("it"))
   .settings(
-    name         := "integration-test",
-    scalaVersion := scala3,
-    publish      := false
+    name           := "integration-test",
+    publish / skip := true
   )
   .dependsOn(root % "test->test;compile->compile")
 
-Test / parallelExecution := false
-Test / fork              := true
-
-Global / onChangedBuildSource := ReloadOnSourceChanges
-Global / scalafmtOnCompile    := true
+Global / scalafmtOnCompile := true
