@@ -10,6 +10,7 @@ import cats.effect.{Async, Resource}
 import cats.syntax.all.*
 import fs2.Stream
 import fs2.kafka.{AutoOffsetReset, ConsumerRecord, ConsumerSettings, KafkaConsumer}
+import io.github.bcarter97.fs2.kafka.topicloader.{LoadTopicStrategy, TopicLoader}
 import org.apache.kafka.clients.consumer.OffsetAndMetadata
 import org.apache.kafka.common.TopicPartition
 import org.scalatest.Assertion
@@ -17,7 +18,6 @@ import org.scalatest.concurrent.{AbstractPatienceConfiguration, Eventually}
 import org.scalatest.exceptions.TestFailedException
 import org.typelevel.log4cats.LoggerFactory
 import org.typelevel.log4cats.slf4j.Slf4jFactory
-import uk.sky.fs2.kafka.topicloader.{LoadTopicStrategy, TopicLoader}
 import utils.KafkaContainer.KafkaConfig
 
 import scala.concurrent.duration.*
