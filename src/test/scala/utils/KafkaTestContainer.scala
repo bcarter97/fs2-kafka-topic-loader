@@ -5,7 +5,7 @@ import cats.effect.syntax.all.*
 import cats.effect.{Ref, Resource, Sync}
 import cats.syntax.all.*
 import org.scalatest.Assertion
-import org.testcontainers.containers.KafkaContainer as Underlying
+import org.testcontainers.kafka.KafkaContainer as Underlying
 import org.testcontainers.utility.DockerImageName
 import utils.KafkaContainer.KafkaConfig
 
@@ -24,10 +24,10 @@ object KafkaContainer {
     Resource.make {
       for {
         status           <- Ref.of(Status.Starting)
-        env              <- Env[F].get("CONFLUENT_KAFKA_VERSION")
+        env              <- Env[F].get("KAFKA_VERSION")
         container        <- Either
                               .catchNonFatal(
-                                Underlying(DockerImageName.parse(s"confluentinc/cp-kafka:${env.getOrElse("7.4.0")}"))
+                                Underlying(DockerImageName.parse(s"apache/kafka-native:${env.getOrElse("4.4.0")}"))
                               )
                               .liftTo[F]
         _                <- F.blocking(container.start())
@@ -46,16 +46,16 @@ object KafkaContainer {
       }
     }(_.stop)
 
-  final case class KafkaConfig(protocol: String, host: String, kafkaPort: Int) {
-    val bootstrapServer = s"$protocol://$host:$kafkaPort"
+  final case class KafkaConfig(host: String, kafkaPort: Int) {
+    val bootstrapServer = s"$host:$kafkaPort"
   }
 
   object KafkaConfig {
     def apply(bootstrapServers: String): Either[Throwable, KafkaConfig] =
       bootstrapServers match {
-        case s"$protocol://$host:$port" =>
+        case s"$host:$port" =>
           port.toIntOption
-            .map(KafkaConfig(protocol, host, _))
+            .map(KafkaConfig(host, _))
             .toRight(RuntimeException(s"$bootstrapServers did not have a valid port: $port"))
 
         case _ =>
