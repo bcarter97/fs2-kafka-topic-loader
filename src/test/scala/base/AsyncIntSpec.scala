@@ -22,7 +22,7 @@ trait AsyncIntSpec[F[_]] extends AsyncWordSpec with AsyncIOSpec with Matchers wi
       Dispatcher.sequential[F].use { dispatcher =>
         F.fromFuture(
           F.executionContext.map(
-            Retrying.retryingNatureOfFutureT[T](_).retry(timeout, interval, pos)(dispatcher.unsafeToFuture(fun))
+            Retrying.retryingNatureOfFutureT[T](using _).retry(timeout, interval, pos)(dispatcher.unsafeToFuture(fun))
           )
         )
       }
