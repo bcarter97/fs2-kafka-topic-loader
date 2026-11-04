@@ -32,7 +32,7 @@ Read up to the latest offset, fire a callback and continue streaming messages.
 
 ## Example
 
-Add the following to your `build.sbt`:
+Requires Scala 3.9 or later. Add the following to your `build.sbt`:
 
 ```scala
 libraryDependencies += "io.github.bcarter97" %% "fs2-kafka-topic-loader" % "<version>"
