@@ -28,6 +28,9 @@ object KafkaContainer {
         container        <- Either
                               .catchNonFatal(
                                 Underlying(DockerImageName.parse(s"apache/kafka-native:${env.getOrElse("4.4.0")}"))
+                                  .withEnv("KAFKA_LOG_INITIAL_TASK_DELAY_MS", "0")
+                                  .withEnv("KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS", "500")
+                                  .withEnv("KAFKA_LOG_CLEANER_BACKOFF_MS", "500")
                               )
                               .liftTo[F]
         _                <- F.blocking(container.start())

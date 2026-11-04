@@ -173,10 +173,32 @@ trait KafkaHelpers[F[_]] {
         offsetReset = AutoOffsetReset.Earliest,
         partitions = partitions,
         groupId = groupId
-      )(_.records.map(_.record).map(recordToTuple).interruptAfter(5.second).compile.toList)
+      )(readToEnd(partitions))
 
       records.map(f)
     }
+
+  private def readToEnd(partitions: NonEmptySet[TopicPartition])(
+      consumer: KafkaConsumer[F, String, String]
+  )(using F: Async[F]): F[List[(String, String)]] =
+    for {
+      beginning <- consumer.beginningOffsets(partitions.toSortedSet)
+      end       <- consumer.endOffsets(partitions.toSortedSet)
+      nonEmpty   = end.keySet.filter(tp => end(tp) > beginning(tp))
+      records   <- if (nonEmpty.isEmpty) F.pure(List.empty)
+                   else
+                     consumer.records
+                       .map(_.record)
+                       .mapAccumulate(nonEmpty) { (remaining, record) =>
+                         val tp = TopicPartition(record.topic, record.partition)
+                         (if (record.offset + 1 >= end(tp)) remaining - tp else remaining, recordToTuple(record))
+                       }
+                       .takeThrough((remaining, _) => remaining.nonEmpty)
+                       .map((_, record) => record)
+                       .interruptAfter(10.seconds)
+                       .compile
+                       .toList
+    } yield records
 
   def withAssignedConsumer[T](
       autoCommit: Boolean,
