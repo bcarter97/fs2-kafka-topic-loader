@@ -4,9 +4,9 @@ import base.KafkaSpecBase
 import cats.data.NonEmptyList
 import cats.effect.{IO, Ref}
 import fs2.kafka.{AutoOffsetReset, ConsumerSettings}
+import io.github.bcarter97.fs2.kafka.topicloader.{LoadAll, LoadCommitted}
 import org.apache.kafka.common.errors.TimeoutException as KafkaTimeoutException
 import org.scalatest.Assertion
-import uk.sky.fs2.kafka.topicloader.{LoadAll, LoadCommitted}
 import utils.KafkaTestContainer
 
 import scala.concurrent.duration.*

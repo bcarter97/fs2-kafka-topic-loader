@@ -1,10 +1,14 @@
-[![Build Status](https://app.travis-ci.com/sky-uk/fs2-kafka-topic-loader.svg?branch=main)](https://app.travis-ci.com/sky-uk/fs2-kafka-topic-loader)
-[![Maven Central](https://img.shields.io/maven-central/v/uk.sky/fs2-kafka-topic-loader_3)](https://mvnrepository.com/artifact/uk.sky/fs2-kafka-topic-loader)
-[![Sonatype Nexus (Snapshots)](https://img.shields.io/nexus/s/uk.sky/fs2-kafka-topic-loader_3?label=snapshot&server=https%3A%2F%2Fs01.oss.sonatype.org)](https://s01.oss.sonatype.org/content/repositories/snapshots/uk/sky/fs2-kafka-topic-loader_3/)
+[![CI](https://github.com/bcarter97/fs2-kafka-topic-loader/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bcarter97/fs2-kafka-topic-loader/actions/workflows/ci.yml)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.bcarter97/fs2-kafka-topic-loader_3)](https://central.sonatype.com/artifact/io.github.bcarter97/fs2-kafka-topic-loader_3)
 
 # fs2-kafka-topic-loader
 
 Reads the contents of provided Kafka topics.
+
+> [!NOTE]
+> This project was originally developed at Sky as
+> [`sky-uk/fs2-kafka-topic-loader`](https://github.com/sky-uk/fs2-kafka-topic-loader) and is now independently
+> maintained. It is not affiliated with or endorsed by Sky. See [Migrating from `uk.sky`](#migrating-from-uksky).
 
 This library is aimed for usage in applications that want a deterministic stream of Kafka messages that completes once
 the last message (determined above) has been read. This is useful if an application shouldn't respond to new events
@@ -31,7 +35,7 @@ Read up to the latest offset, fire a callback and continue streaming messages.
 Add the following to your `build.sbt`:
 
 ```scala
-libraryDependencies += "uk.sky" %% "fs2-kafka-topic-loader" % "<version>"
+libraryDependencies += "io.github.bcarter97" %% "fs2-kafka-topic-loader" % "<version>"
 ```
 
 ### Load
@@ -41,7 +45,7 @@ import cats.data.NonEmptyList
 import cats.effect.{IO, IOApp}
 import fs2.kafka.ConsumerSettings
 import org.typelevel.log4cats.LoggerFactory
-import uk.sky.fs2.kafka.topicloader.{LoadAll, TopicLoader}
+import io.github.bcarter97.fs2.kafka.topicloader.{LoadAll, TopicLoader}
 
 object Main extends IOApp.Simple {
   val consumerSettings: ConsumerSettings[IO, String, String] = ???
@@ -63,7 +67,7 @@ import cats.effect.Resource.ExitCase
 import cats.effect.{IO, IOApp, Ref}
 import fs2.kafka.ConsumerSettings
 import org.typelevel.log4cats.LoggerFactory
-import uk.sky.fs2.kafka.topicloader.{LoadAll, TopicLoader}
+import io.github.bcarter97.fs2.kafka.topicloader.{LoadAll, TopicLoader}
 
 object Main extends IOApp.Simple {
   val consumerSettings: ConsumerSettings[IO, String, String] = ???
@@ -93,6 +97,25 @@ object Main extends IOApp.Simple {
 
 Configuration from the Topic Loader is done via the `ConsumerSettings`. The group id of the Topic Loader should match
 the group id of your application.
+
+## Migrating from `uk.sky`
+
+Releases from this repository are published under new coordinates, and the package has been renamed to match. The API is
+otherwise unchanged.
+
+1. Update your dependency:
+
+   ```diff
+   - libraryDependencies += "uk.sky" %% "fs2-kafka-topic-loader" % "<old-version>"
+   + libraryDependencies += "io.github.bcarter97" %% "fs2-kafka-topic-loader" % "<version>"
+   ```
+
+2. Update your imports:
+
+   ```diff
+   - import uk.sky.fs2.kafka.topicloader.*
+   + import io.github.bcarter97.fs2.kafka.topicloader.*
+   ```
 
 ## Contributing
 

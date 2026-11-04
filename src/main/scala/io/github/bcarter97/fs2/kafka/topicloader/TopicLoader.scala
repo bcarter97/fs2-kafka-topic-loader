@@ -1,4 +1,4 @@
-package uk.sky.fs2.kafka.topicloader
+package io.github.bcarter97.fs2.kafka.topicloader
 
 import cats.data.{NonEmptyList, NonEmptyMap}
 import cats.effect.{Async, Resource}

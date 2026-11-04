@@ -14,27 +14,12 @@ When contributing to this repository, please first discuss the change you wish t
 
 The software is written in [Scala](https://scala-lang.org/) and is built with [SBT](http://www.scala-sbt.org/).
 
-The project is built and released for Scala versions 2.13 and 3. To compile and test both versions run `sbt +test; project it; +test` to run both unit and integration tests.
+The project is built and released for Scala 3. Run `sbt ciBuild` to lint and run both the unit and integration tests, exactly as CI does. The tests start Kafka using [Testcontainers](https://testcontainers.com/), so Docker must be running.
 
 ## Performing a release (for project maintainers)
 
-### Snapshot release
-
-1. Merging a PR to master will trigger the `release` step of the [travis workflow](./.travis.yml) and create a snapshot release in the [Sonatype snapshot repository](https://s01.oss.sonatype.org/content/repositories/snapshots/uk/sky/).
-
->**Note**
-> 
-> `sbt-ci-release` determines the Snapshot version using [`sbt-dynver`](https://github.com/dwijnand/sbt-dynver).
-
-### Stable release
-
-1. Create a GitHub release with the new version and tag following [semver.org](https://semver.org/).
-2. Update the release notes according to recent changes. You can click 'Auto-generate release notes' when creating the release.
-3. Publish the release. This will trigger the `release` stage of the [travis workflow](./.travis.yml) and push the image to the [Sonatype release repository](https://s01.oss.sonatype.org/content/repositories/releases/uk/sky/).
-
->**Warning**
-> 
-> The release tag **must** start with a `v` followed by the version, e.g. `v1.0.0` for sbt-ci-release to work
+Automated publishing to Maven Central is not set up yet. CI currently only builds and tests the project. The build
+already includes [`sbt-ci-release`](https://github.com/sbt/sbt-ci-release) for when it is.
 
 ## Contributor Code of Conduct
 

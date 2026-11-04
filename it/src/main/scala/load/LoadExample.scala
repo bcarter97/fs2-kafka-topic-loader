@@ -6,8 +6,8 @@ import cats.effect.{Async, Ref}
 import cats.syntax.all.*
 import fs2.kafka.*
 import fs2.{Pipe, Stream}
+import io.github.bcarter97.fs2.kafka.topicloader.{LoadCommitted, TopicLoader}
 import org.typelevel.log4cats.LoggerFactory
-import uk.sky.fs2.kafka.topicloader.{LoadCommitted, TopicLoader}
 
 import scala.concurrent.duration.*
 

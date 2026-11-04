@@ -2,18 +2,20 @@ import Dependencies.*
 
 lazy val scala3                 = "3.3.4"
 lazy val supportedScalaVersions = List(scala3)
-lazy val scmUrl                 = "https://github.com/sky-uk/fs2-kafka-topic-loader"
+lazy val scmUrl                 = "https://github.com/bcarter97/fs2-kafka-topic-loader"
 
-ThisBuild / organization := "uk.sky"
-ThisBuild / description  := "Read the contents of provided Kafka topics"
-ThisBuild / licenses     := List("BSD New" -> url("https://opensource.org/licenses/BSD-3-Clause"))
-ThisBuild / homepage     := Some(url(scmUrl))
-ThisBuild / developers   := List(
+ThisBuild / organization  := "io.github.bcarter97"
+ThisBuild / description   := "Read the contents of provided Kafka topics"
+ThisBuild / licenses      := List("BSD New" -> url("https://opensource.org/licenses/BSD-3-Clause"))
+ThisBuild / homepage      := Some(url(scmUrl))
+ThisBuild / scmInfo       := Some(ScmInfo(url(scmUrl), "scm:git@github.com:bcarter97/fs2-kafka-topic-loader.git"))
+ThisBuild / versionScheme := Some("early-semver")
+ThisBuild / developers    := List(
   Developer(
-    "Sky UK OSS",
-    "Sky UK OSS",
-    sys.env.getOrElse("SONATYPE_EMAIL", scmUrl),
-    url(scmUrl)
+    "bcarter97",
+    "Ben Carter",
+    "benjohn.carter@gmail.com",
+    url("https://github.com/bcarter97")
   )
 )
 
