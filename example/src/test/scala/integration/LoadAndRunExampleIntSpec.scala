@@ -63,13 +63,13 @@ final class LoadAndRunExampleIntSpec extends KafkaSpecBase[IO], KafkaTestContain
       .mapN(LoadAndRunExample.apply)
 
   private final class SlowUpdateRef[A](underlying: Ref[IO, A], delay: FiniteDuration) extends Ref[IO, A] {
-    override def get: IO[A]                                                        = underlying.get
-    override def set(a: A): IO[Unit]                                               = underlying.set(a)
-    override def access: IO[(A, A => IO[Boolean])]                                 = underlying.access
-    override def tryUpdate(f: A => A): IO[Boolean]                                 = underlying.tryUpdate(f)
-    override def tryModify[B](f: A => (A, B)): IO[Option[B]]                       = underlying.tryModify(f)
-    override def update(f: A => A): IO[Unit]                                       = IO.sleep(delay) >> underlying.update(f)
-    override def modify[B](f: A => (A, B)): IO[B]                                  = underlying.modify(f)
+    override def get: IO[A]                                           = underlying.get
+    override def set(a: A): IO[Unit]                                  = underlying.set(a)
+    override def access: IO[(A, A => IO[Boolean])]                    = underlying.access
+    override def tryUpdate(f: A => A): IO[Boolean]                    = underlying.tryUpdate(f)
+    override def tryModify[B](f: A => (A, B)): IO[Option[B]]          = underlying.tryModify(f)
+    override def update(f: A => A): IO[Unit]                          = IO.sleep(delay) >> underlying.update(f)
+    override def modify[B](f: A => (A, B)): IO[B]                     = underlying.modify(f)
     override def tryModifyState[B](state: State[A, B]): IO[Option[B]] = underlying.tryModifyState(state)
     override def modifyState[B](state: State[A, B]): IO[B]            = underlying.modifyState(state)
   }
