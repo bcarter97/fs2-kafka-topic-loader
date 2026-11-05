@@ -4,9 +4,12 @@ import base.KafkaSpecBase
 import cats.data.NonEmptyList
 import cats.effect.{IO, Ref}
 import fs2.kafka.{AutoOffsetReset, ConsumerSettings}
-import io.github.bcarter97.fs2.kafka.topicloader.{LoadAll, LoadCommitted}
+import io.github.bcarter97.fs2.kafka.topicloader.{LoadAll, LoadCommitted, TopicLoader}
+import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.TimeoutException as KafkaTimeoutException
 import org.scalatest.Assertion
+import org.typelevel.log4cats.LoggerFactory
+import org.typelevel.log4cats.slf4j.Slf4jFactory
 import utils.KafkaTestContainer
 
 import scala.concurrent.duration.*
@@ -187,6 +190,135 @@ class TopicLoaderIntSpec extends KafkaSpecBase[IO], KafkaTestContainer[IO] {
           .assertThrows[KafkaTimeoutException]
       }
 
+    }
+  }
+
+  "loadPartitioned" when {
+
+    "using LoadAll strategy" should {
+
+      val strategy = LoadAll
+
+      "stream all records from all topics" in withRunningKafka { implicit kafkaConfig =>
+        val topics                 = NonEmptyList.of(testTopic1, testTopic2)
+        val (forTopic1, forTopic2) = records(1 to 15).splitAt(10)
+
+        for {
+          _      <- createCustomTopics(topics)
+          _      <- publishStringMessages(testTopic1, forTopic1)
+          _      <- publishStringMessages(testTopic2, forTopic2)
+          result <- runPartitionedLoader(topics, strategy)
+        } yield result.map((_, r) => recordToTuple(r)) should contain theSameElementsAs (forTopic1 ++ forTopic2)
+      }
+
+      "stream each partition's records in order" in withRunningKafka { implicit kafkaConfig =>
+        val (forPartition0, forPartition1) = records(1 to 20).splitAt(10)
+
+        for {
+          _      <- createCustomTopics(NonEmptyList.one(testTopic1), partitions = 2)
+          _      <- publishStringMessagesToPartition(testTopic1, 0, forPartition0)
+          _      <- publishStringMessagesToPartition(testTopic1, 1, forPartition1)
+          result <- runPartitionedLoader(NonEmptyList.one(testTopic1), strategy)
+        } yield result.groupMap((tp, _) => tp.partition)((_, r) => recordToTuple(r)) shouldBe Map(
+          0 -> forPartition0,
+          1 -> forPartition1
+        )
+      }
+
+      "only emit partitions with records to load" in withRunningKafka { implicit kafkaConfig =>
+        given LoggerFactory[IO] = Slf4jFactory.create[IO]
+
+        for {
+          _          <- createCustomTopics(NonEmptyList.one(testTopic1), partitions = 3)
+          _          <- publishStringMessagesToPartition(testTopic1, 1, records(1 to 5))
+          partitions <- TopicLoader
+                          .loadPartitioned(NonEmptyList.one(testTopic1), strategy, consumerSettings)
+                          .map((tp, _) => tp)
+                          .compile
+                          .toList
+        } yield partitions shouldBe List(TopicPartition(testTopic1, 1))
+      }
+
+      "complete successfully if every partition is empty" in withRunningKafka { implicit kafkaConfig =>
+        val topics = NonEmptyList.of(testTopic1, testTopic2)
+
+        for {
+          _      <- createCustomTopics(topics)
+          result <- runPartitionedLoader(topics, strategy)
+        } yield result shouldBe empty
+      }
+
+      "complete when partitions have very different sizes" in withRunningKafka { implicit kafkaConfig =>
+        val small = records(1 to 1)
+        val large = records(2 to 2001)
+
+        for {
+          _      <- createCustomTopics(NonEmptyList.one(testTopic1), partitions = 2)
+          _      <- publishStringMessagesToPartition(testTopic1, 0, small)
+          _      <- publishStringMessagesToPartition(testTopic1, 1, large)
+          result <- runPartitionedLoader(NonEmptyList.one(testTopic1), strategy)
+        } yield result.map((_, r) => recordToTuple(r)) should contain theSameElementsAs (small ++ large)
+      }
+
+      "load many partitions" in withRunningKafka { implicit kafkaConfig =>
+        val published = records(1 to 500)
+
+        for {
+          _      <- createCustomTopics(NonEmptyList.one(testTopic1), partitions = 32)
+          _      <- publishStringMessages(testTopic1, published)
+          result <- runPartitionedLoader(NonEmptyList.one(testTopic1), strategy)
+        } yield result.map((_, r) => recordToTuple(r)) should contain theSameElementsAs published
+      }
+    }
+
+    "using LoadCommitted strategy" should {
+
+      val strategy = LoadCommitted
+
+      "stream all records up to the committed offset" in withRunningKafka { implicit kafkaConfig =>
+        val topics                    = NonEmptyList.one(testTopic1)
+        val (committed, notCommitted) = records(1 to 15).splitAt(10)
+
+        for {
+          partitions <- createCustomTopics(topics)
+          _          <- publishStringMessages(testTopic1, committed)
+          _          <- moveOffsetToEnd(partitions)
+          _          <- publishStringMessages(testTopic1, notCommitted)
+          result     <- runPartitionedLoader(topics, strategy)
+        } yield result.map((_, r) => recordToTuple(r)) should contain theSameElementsAs committed
+      }
+
+      "work when highest offset is missing in log and there are messages after highest offset" in withRunningKafka {
+        implicit kafkaConfig =>
+          val published                 = records(1 to 10)
+          val (notUpdated, toBeUpdated) = published.splitAt(5)
+
+          for {
+            partitions <-
+              createCustomTopics(NonEmptyList.one(testTopic1), partitions = 1, topicConfig = aggressiveCompactionConfig)
+            _          <- publishStringMessages(testTopic1, published)
+            _          <- moveOffsetToEnd(partitions)
+            _          <- publishToKafkaAndWaitForCompaction(partitions, toBeUpdated.map((k, v) => (k, v.reverse)))
+            result     <- runPartitionedLoader(NonEmptyList.one(testTopic1), strategy)
+          } yield result.map((_, r) => recordToTuple(r)) should contain theSameElementsAs notUpdated
+      }
+    }
+
+    "Kafka is misbehaving" should {
+
+      "fail if unavailable at startup" in withRunningKafka { _ =>
+        given badConsumerSettings: ConsumerSettings[IO, String, String] = ConsumerSettings[IO, String, String]
+          .withBootstrapServers("localhost:6001")
+          .withAutoOffsetReset(AutoOffsetReset.Earliest)
+          .withGroupId("test-consumer-group")
+          .withRequestTimeout(700.millis)
+          .withSessionTimeout(500.millis)
+          .withHeartbeatInterval(300.millis)
+          .withDefaultApiTimeout(1000.millis)
+
+        runPartitionedLoader(NonEmptyList.one(testTopic1), LoadAll)
+          .assertThrows[KafkaTimeoutException]
+      }
     }
   }
 

@@ -26,6 +26,14 @@ Load strategies:
 - `LoadAll` - reads the topics in their entirety
 - `LoadCommitted` - reads up to the configured consumer-group's last committed Offset
 
+See `LoadExample.kafka` in [`LoadExample.scala`](./example/src/main/scala/load/LoadExample.scala).
+
+### `LoadPartitioned`
+
+Like `Load`, but emits one stream per partition so that partitions can be processed concurrently, e.g. with `parJoin`.
+Partition streams must run within the outer stream. See `LoadExample.kafkaPartitioned` in
+[`LoadExample.scala`](./example/src/main/scala/load/LoadExample.scala).
+
 ### `LoadAndRun`
 
 Read up to the latest offset, fire a callback and continue streaming messages.
@@ -56,8 +64,6 @@ object Main extends IOApp.Simple {
     TopicLoader.load(NonEmptyList.one("topicToLoad"), LoadAll, consumerSettings).evalTap(IO.println).compile.drain
 }
 ```
-
-See [`LoadExample.scala`](./example/src/main/scala/load/LoadExample.scala) for a more detailed example.
 
 ### LoadAndRun
 
