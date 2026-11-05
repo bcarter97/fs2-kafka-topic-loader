@@ -8,7 +8,7 @@ Reads the contents of provided Kafka topics.
 > [!NOTE]
 > This project was originally developed at Sky as
 > [`sky-uk/fs2-kafka-topic-loader`](https://github.com/sky-uk/fs2-kafka-topic-loader) and is now independently
-> maintained. It is not affiliated with or endorsed by Sky. See [Migrating from `uk.sky`](#migrating-from-uksky).
+> maintained. It is not affiliated with or endorsed by Sky.
 
 This library is aimed for usage in applications that want a deterministic stream of Kafka messages that completes once
 the last message (determined above) has been read. This is useful if an application shouldn't respond to new events
@@ -97,25 +97,6 @@ object Main extends IOApp.Simple {
 
 Configuration from the Topic Loader is done via the `ConsumerSettings`. The group id of the Topic Loader should match
 the group id of your application.
-
-## Migrating from `uk.sky`
-
-Releases from this repository are published under new coordinates, and the package has been renamed to match. The API is
-otherwise unchanged.
-
-1. Update your dependency:
-
-   ```diff
-   - libraryDependencies += "uk.sky" %% "fs2-kafka-topic-loader" % "<old-version>"
-   + libraryDependencies += "io.github.bcarter97" %% "fs2-kafka-topic-loader" % "<version>"
-   ```
-
-2. Update your imports:
-
-   ```diff
-   - import uk.sky.fs2.kafka.topicloader.*
-   + import io.github.bcarter97.fs2.kafka.topicloader.*
-   ```
 
 ## Contributing
 
