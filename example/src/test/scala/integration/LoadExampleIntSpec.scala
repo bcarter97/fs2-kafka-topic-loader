@@ -3,6 +3,7 @@ package integration
 import base.KafkaSpecBase
 import cats.data.NonEmptyList
 import cats.effect.{IO, Ref}
+import cats.syntax.all.*
 import fs2.Stream
 import fs2.kafka.*
 import load.LoadExample
@@ -45,6 +46,25 @@ final class LoadExampleIntSpec extends KafkaSpecBase[IO], KafkaTestContainer[IO]
     }
   }
 
+  "LoadExample.kafkaPartitioned" should {
+    "load previously seen messages from every partition into the store" in withRunningKafka { implicit kafkaConfig =>
+      testContext { ctx =>
+        import ctx.*
+
+        val partitions                  = 0 until 3
+        val (beforeRestart, afterStart) = partitions.map(p => s"before-$p" -> s"after-$p").unzip
+
+        for {
+          _      <- createCustomTopics(NonEmptyList.one(inputTopic), partitions = partitions.size)
+          _      <- partitions.toList.traverse_(p => publishStringMessageToPartition(p, beforeRestart(p)))
+          _      <- runPartitionedApp.void
+          _      <- partitions.toList.traverse_(p => publishStringMessageToPartition(p, afterStart(p)))
+          result <- runPartitionedApp
+        } yield result should contain theSameElementsAs (beforeRestart ++ afterStart)
+      }
+    }
+  }
+
   final case class TestContext()(using KafkaConfig) {
 
     val inputTopic  = "test-topic-1"
@@ -73,17 +93,26 @@ final class LoadExampleIntSpec extends KafkaSpecBase[IO], KafkaTestContainer[IO]
         committed  <- withAdminClient(_.listConsumerGroupOffsets(appGroupId).partitionsToOffsetAndMetadata)
       } yield endOffsets.forall((tp, end) => committed.get(tp).exists(_.offset >= end))
 
-    val runApp: IO[List[String]] =
+    def publishStringMessageToPartition(partition: Int, value: String): IO[Unit] =
+      publishStringMessagesToPartition(inputTopic, partition, List(s"key-$partition" -> value))
+
+    private def run(example: Ref[IO, List[String]] => LoadExample[IO, LoadExample.Message[IO, *], Unit]) =
       for {
         store  <- Ref.empty[IO, List[String]]
-        _      <- LoadExample
-                    .kafka[IO](topics = NonEmptyList.one(inputTopic), outputTopic = outputTopic, store = store)
-                    .stream
+        _      <- example(store).stream
                     .interruptWhen(Stream.eval(eventually(caughtUp.asserting(_ shouldBe true))).as(true))
                     .compile
                     .drain
         stored <- store.get
       } yield stored
+
+    val runApp: IO[List[String]] =
+      run(store => LoadExample.kafka[IO](NonEmptyList.one(inputTopic), outputTopic, store))
+
+    val runPartitionedApp: IO[List[String]] =
+      run(store =>
+        LoadExample.kafkaPartitioned[IO](NonEmptyList.one(inputTopic), outputTopic, store, maxConcurrency = 3)
+      )
 
     val runAppAndDiscard: IO[Unit] = runApp.void
   }

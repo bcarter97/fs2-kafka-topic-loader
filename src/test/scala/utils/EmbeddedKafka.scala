@@ -56,6 +56,14 @@ trait EmbeddedKafka[F[_]] {
     withProducer(_.produce(ProducerRecords(records)).flatten).void
   }
 
+  def publishStringMessagesToPartition(topic: String, partition: Int, messages: Seq[(String, String)])(using
+      kafkaConfig: KafkaConfig,
+      F: Async[F]
+  ): F[Unit] = {
+    val records = messages.map((k, v) => ProducerRecord(topic, k, v).withPartition(partition))
+    withProducer(_.produce(ProducerRecords(records)).flatten).void
+  }
+
   def consumeStringMessage(topic: String, autoCommit: Boolean)(using
       kafkaConfig: KafkaConfig,
       F: Async[F]

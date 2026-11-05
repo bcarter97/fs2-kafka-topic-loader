@@ -58,6 +58,32 @@ trait TopicLoader {
       record          <- load(topics, strategy, consumer)
     } yield record
 
+  /** Stream of one stream per partition that loads the specified topics from the beginning. Each partition stream
+    * completes when its offsets reach the point specified by the requested strategy, and the outer stream completes
+    * once every partition stream has been emitted. Partitions with nothing to load are not emitted.
+    *
+    * The partition streams must be run within the scope of the outer stream, e.g. with `parJoin`.
+    *
+    * @param topics
+    *   topics to load
+    * @param strategy
+    *   A [[LoadTopicStrategy]]
+    * @param consumerSettings
+    *   [[fs2.kafka.ConsumerSettings]] for the given topics
+    */
+  def loadPartitioned[F[_] : Async : LoggerFactory, K, V](
+      topics: NonEmptyList[String],
+      strategy: LoadTopicStrategy,
+      consumerSettings: ConsumerSettings[F, K, V]
+  ): Stream[F, (TopicPartition, Stream[F, ConsumerRecord[K, V]])] =
+    for {
+      given Logger[F] <- Stream.eval(LoggerFactory[F].create)
+      consumer        <- KafkaConsumer.stream(consumerSettings)
+      logOffsets      <- Stream.eval(logOffsetsForTopics(topics, strategy, consumer)).flatMap(Stream.fromOption(_))
+      _               <- Stream.eval(info"log offsets: ${logOffsets.show}")
+      partition       <- loadPartitioned(logOffsets, consumer)
+    } yield partition
+
   /** Stream that loads the specified topics from the beginning. When the latest current offsets are reached, the
     * `onLoad` callback is evaluated, and the stream continues.
     *
@@ -110,6 +136,32 @@ trait TopicLoader {
       _      <- Stream.eval(assignOffsets(logOffsets, consumer)(_.lowest))
       record <- consumer.records.map(_.record).through(filterBelowHighestOffset(logOffsets))
     } yield record
+
+  private def loadPartitioned[F[_] : Async : Logger, K, V](
+      logOffsets: NonEmptyMap[TopicPartition, LogOffsets],
+      consumer: KafkaConsumer[F, K, V]
+  ): Stream[F, (TopicPartition, Stream[F, ConsumerRecord[K, V]])] = {
+    val (nonEmptyOffsets, emptyOffsets) = logOffsets.toSortedMap.partition((_, o) => o.highest > o.lowest)
+
+    val logEmpty = Stream.eval {
+      emptyOffsets.toList.traverse_((tp, o) => info"Not loading data from ${tp.show} at offset ${o.highest}")
+    }
+
+    def partitionStreams(toLoad: NonEmptyMap[TopicPartition, LogOffsets]) =
+      for {
+        _          <- Stream.eval(assignOffsets(toLoad, consumer)(_.lowest))
+        partitions <- consumer.partitionsMapStream.take(1)
+        partition  <- Stream.emits(partitions.toList.flatMap { (tp, stream) =>
+                        toLoad(tp).map { offsets =>
+                          tp -> stream
+                            .map(_.record)
+                            .through(filterBelowHighestOffset(NonEmptyMap.one(tp, offsets)))
+                        }
+                      })
+      } yield partition
+
+    logEmpty >> NonEmptyMap.fromMap(nonEmptyOffsets).fold(Stream.empty)(partitionStreams)
+  }
 
   private def assignOffsets[F[_] : Monad : Logger, K, V](
       logOffsets: NonEmptyMap[TopicPartition, LogOffsets],

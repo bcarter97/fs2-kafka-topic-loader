@@ -39,9 +39,42 @@ object LoadExample {
   )(using
       consumerSettings: ConsumerSettings[F, String, String],
       producerSettings: ProducerSettings[F, String, String]
-  ): LoadExample[F, Message[F, *], Unit] = {
-    val loadStream = TopicLoader.load[F, String, String](topics, LoadCommitted, consumerSettings).map(_.value)
+  ): LoadExample[F, Message[F, *], Unit] =
+    fromLoadStream(
+      load = TopicLoader.load[F, String, String](topics, LoadCommitted, consumerSettings).map(_.value),
+      topics = topics,
+      outputTopic = outputTopic,
+      store = store
+    )
 
+  def kafkaPartitioned[F[_] : Async : LoggerFactory](
+      topics: NonEmptyList[String],
+      outputTopic: String,
+      store: Ref[F, List[String]],
+      maxConcurrency: Int
+  )(using
+      consumerSettings: ConsumerSettings[F, String, String],
+      producerSettings: ProducerSettings[F, String, String]
+  ): LoadExample[F, Message[F, *], Unit] =
+    fromLoadStream(
+      load = TopicLoader
+        .loadPartitioned[F, String, String](topics, LoadCommitted, consumerSettings)
+        .map((_, records) => records.map(_.value))
+        .parJoin(maxConcurrency),
+      topics = topics,
+      outputTopic = outputTopic,
+      store = store
+    )
+
+  private def fromLoadStream[F[_] : Async](
+      load: Stream[F, String],
+      topics: NonEmptyList[String],
+      outputTopic: String,
+      store: Ref[F, List[String]]
+  )(using
+      consumerSettings: ConsumerSettings[F, String, String],
+      producerSettings: ProducerSettings[F, String, String]
+  ): LoadExample[F, Message[F, *], Unit] = {
     val runStream = KafkaConsumer.stream(consumerSettings).subscribe(topics).records
 
     val publishAndCommit: Pipe[F, CommittableConsumerRecord[F, String, String], Unit] =
@@ -58,7 +91,7 @@ object LoadExample {
       }.through(commitBatchWithin[F](1, 5.seconds))
 
     new LoadExample(
-      load = loadStream,
+      load = load,
       run = runStream,
       publishAndCommit = publishAndCommit,
       store = store

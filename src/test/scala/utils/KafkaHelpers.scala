@@ -87,6 +87,26 @@ trait KafkaHelpers[F[_]] {
       )
   }
 
+  def runPartitionedLoader(
+      topics: NonEmptyList[String],
+      strategy: LoadTopicStrategy
+  )(using
+      consumerSettings: ConsumerSettings[F, String, String],
+      F: Async[F]
+  ): F[List[(TopicPartition, ConsumerRecord[String, String])]] = {
+    given LoggerFactory[F] = Slf4jFactory.create[F]
+    TopicLoader
+      .loadPartitioned(topics, strategy, consumerSettings)
+      .map((tp, records) => records.map(tp -> _))
+      .parJoinUnbounded
+      .compile
+      .toList
+      .timeoutTo(
+        patienceConfig.timeout,
+        F.raiseError(TestFailedException(s"TopicLoader did not complete after ${patienceConfig.timeout.toSeconds}s", 0))
+      )
+  }
+
   def loadAndRunR(topics: NonEmptyList[String])(
       onLoad: Resource.ExitCase => F[Unit],
       onRecord: ((String, String)) => F[Unit]
