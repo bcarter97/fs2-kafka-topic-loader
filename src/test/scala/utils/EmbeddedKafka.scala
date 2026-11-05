@@ -89,7 +89,7 @@ trait EmbeddedKafka[F[_]] {
   }
 
   def withProducer[T](
-      f: KafkaProducer.PartitionsFor[F, String, String] => F[T]
+      f: KafkaProducer[F, String, String] => F[T]
   )(using kafkaConfig: KafkaConfig, F: Async[F]): F[T] = {
     val producerSettings = ProducerSettings[F, String, String]
       .withBootstrapServers(kafkaConfig.bootstrapServer)
