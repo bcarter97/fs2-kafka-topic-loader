@@ -17,6 +17,8 @@ developers    := List(
   )
 )
 
+versionPolicyIntention := Compatibility.None
+
 scalaVersion      := "3.9.0"
 semanticdbEnabled := true
 semanticdbVersion := scalafixSemanticdb.revision
