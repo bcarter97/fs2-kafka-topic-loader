@@ -43,9 +43,9 @@ lazy val root = rootProject.autoAggregate
     )
   )
 
-lazy val it = (project in file("it"))
+lazy val example = (project in file("example"))
   .settings(
-    name           := "integration-test",
+    name           := "example",
     publish / skip := true
   )
   .dependsOn(root % "test->test;compile->compile")

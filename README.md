@@ -57,7 +57,7 @@ object Main extends IOApp.Simple {
 }
 ```
 
-See [`LoadExample.scala`](./it/src/main/scala/load/LoadExample.scala) for a more detailed example.
+See [`LoadExample.scala`](./example/src/main/scala/load/LoadExample.scala) for a more detailed example.
 
 ### LoadAndRun
 
