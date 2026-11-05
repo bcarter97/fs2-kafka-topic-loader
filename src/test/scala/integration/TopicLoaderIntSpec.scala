@@ -2,7 +2,8 @@ package integration
 
 import base.KafkaSpecBase
 import cats.data.NonEmptyList
-import cats.effect.{IO, Ref}
+import cats.effect.{Deferred, IO, Ref, Resource}
+import cats.syntax.all.*
 import fs2.kafka.{AutoOffsetReset, ConsumerSettings}
 import io.github.bcarter97.fs2.kafka.topicloader.{LoadAll, LoadCommitted, TopicLoader}
 import org.apache.kafka.common.TopicPartition
@@ -10,6 +11,7 @@ import org.apache.kafka.common.errors.TimeoutException as KafkaTimeoutException
 import org.scalatest.Assertion
 import org.typelevel.log4cats.LoggerFactory
 import org.typelevel.log4cats.slf4j.Slf4jFactory
+import utils.KafkaContainer.KafkaConfig
 import utils.KafkaTestContainer
 
 import scala.concurrent.duration.*
@@ -323,6 +325,142 @@ class TopicLoaderIntSpec extends KafkaSpecBase[IO], KafkaTestContainer[IO] {
   }
 
   "loadAndRun" should {
+    behave like loadAndRunBehaviours(partitioned = false)
+  }
+
+  "loadAndRunPartitioned" should {
+    behave like loadAndRunBehaviours(partitioned = true)
+
+    "execute callback only after every partition's loaded records have been processed" in withRunningKafka {
+      implicit kafkaConfig =>
+        val partitions = (0 until 3).toList
+        val preLoad    = partitions.map(p => p -> records(p * 10 + 1 to p * 10 + 5)).toMap
+        val postLoad   = partitions.map(p => p -> records(p * 10 + 6 to p * 10 + 6)).toMap
+
+        for {
+          events    <- Ref.empty[IO, Vector[String]]
+          _         <- createCustomTopics(NonEmptyList.one(testTopic1), partitions = partitions.size)
+          _         <- partitions.traverse_(p => publishStringMessagesToPartition(testTopic1, p, preLoad(p)))
+          collected <- loadAndRunPartitionedR(NonEmptyList.one(testTopic1))(
+                         _ => events.update(_ :+ "loaded"),
+                         (k, _) => events.update(_ :+ k)
+                       ).surround {
+                         for {
+                           _         <- eventually(events.get.asserting(_ should contain("loaded")))
+                           _         <- partitions.traverse_(p => publishStringMessagesToPartition(testTopic1, p, postLoad(p)))
+                           _         <- eventually(events.get.asserting(_ should have size 19))
+                           collected <- events.get
+                         } yield collected
+                       }
+        } yield {
+          val (beforeLoad, afterLoad) = collected.splitAt(collected.indexOf("loaded"))
+          beforeLoad should contain theSameElementsAs preLoad.values.flatten.map((k, _) => k)
+          afterLoad.tail should contain theSameElementsAs postLoad.values.flatten.map((k, _) => k)
+        }
+    }
+
+    "keep streaming new records in partitions that were empty when loading" in withRunningKafka { implicit kafkaConfig =>
+      for {
+        loaded    <- Ref.of[IO, Boolean](false)
+        consumed  <- Ref.empty[IO, Seq[(String, String)]]
+        _         <- createCustomTopics(NonEmptyList.one(testTopic1), partitions = 3)
+        _         <- publishStringMessagesToPartition(testTopic1, 0, records(1 to 5))
+        assertion <- loadAndRunPartitionedR(NonEmptyList.one(testTopic1))(
+                       _ => loaded.set(true),
+                       r => consumed.update(_ :+ r)
+                     ).surround {
+                       for {
+                         _         <- eventually(loaded.get.asserting(_ shouldBe true))
+                         _         <- publishStringMessagesToPartition(testTopic1, 1, records(6 to 8))
+                         _         <- publishStringMessagesToPartition(testTopic1, 2, records(9 to 10))
+                         assertion <- eventually(
+                                        consumed.get.asserting(_ should contain theSameElementsAs records(1 to 10))
+                                      )
+                       } yield assertion
+                     }
+      } yield assertion
+    }
+
+    "execute callback when partitions have very different sizes" in withRunningKafka { implicit kafkaConfig =>
+      val small = records(1 to 1)
+      val large = records(2 to 2001)
+
+      for {
+        loaded    <- Ref.of[IO, Boolean](false)
+        consumed  <- Ref.empty[IO, Seq[(String, String)]]
+        _         <- createCustomTopics(NonEmptyList.one(testTopic1), partitions = 2)
+        _         <- publishStringMessagesToPartition(testTopic1, 0, small)
+        _         <- publishStringMessagesToPartition(testTopic1, 1, large)
+        assertion <- loadAndRunPartitionedR(NonEmptyList.one(testTopic1))(
+                       _ => loaded.set(true),
+                       r => consumed.update(_ :+ r)
+                     ).surround {
+                       for {
+                         _         <- eventually(loaded.get.asserting(_ shouldBe true))
+                         assertion <- consumed.get.asserting(_ should contain theSameElementsAs (small ++ large))
+                       } yield assertion
+                     }
+      } yield assertion
+    }
+
+    "execute callback for partitions that have been compacted" in withRunningKafka { implicit kafkaConfig =>
+      val published        = records(1 to 10)
+      val publishedUpdated = published.map((k, v) => (k, v.reverse))
+
+      for {
+        loaded     <- Ref.of[IO, Boolean](false)
+        consumed   <- Ref.empty[IO, Seq[(String, String)]]
+        partitions <- createCustomTopics(
+                        NonEmptyList.one(testTopic1),
+                        partitions = 1,
+                        topicConfig = aggressiveCompactionConfig
+                      )
+        _          <- publishToKafkaAndWaitForCompaction(partitions, published ++ publishedUpdated)
+        assertion  <- loadAndRunPartitionedR(NonEmptyList.one(testTopic1))(
+                        _ => loaded.set(true),
+                        r => consumed.update(_ :+ r)
+                      ).surround {
+                        for {
+                          _         <- eventually(loaded.get.asserting(_ shouldBe true))
+                          assertion <- consumed.get.asserting(_ should contain noElementsOf published)
+                        } yield assertion
+                      }
+      } yield assertion
+    }
+
+    "execute callback with the error if Kafka is unavailable" in withRunningKafka { _ =>
+      given badConsumerSettings: ConsumerSettings[IO, String, String] = ConsumerSettings[IO, String, String]
+        .withBootstrapServers("localhost:6001")
+        .withAutoOffsetReset(AutoOffsetReset.Earliest)
+        .withGroupId("test-consumer-group")
+        .withRequestTimeout(700.millis)
+        .withSessionTimeout(500.millis)
+        .withHeartbeatInterval(300.millis)
+        .withDefaultApiTimeout(1000.millis)
+
+      for {
+        exitCase <- Deferred[IO, Resource.ExitCase]
+        result   <- loadAndRunPartitionedLoader(NonEmptyList.one(testTopic1))(exitCase.complete(_).void)
+                      .map((_, records) => records)
+                      .parJoinUnbounded
+                      .compile
+                      .drain
+                      .attempt
+        onLoad   <- exitCase.get.timeout(5.seconds)
+      } yield {
+        result.isLeft shouldBe true
+        onLoad should matchPattern { case Resource.ExitCase.Errored(_: KafkaTimeoutException) => }
+      }
+    }
+  }
+
+  private def runLoadAndRun(partitioned: Boolean, topics: NonEmptyList[String])(
+      onLoad: Resource.ExitCase => IO[Unit],
+      onRecord: ((String, String)) => IO[Unit]
+  )(using KafkaConfig): Resource[IO, Unit] =
+    if (partitioned) loadAndRunPartitionedR(topics)(onLoad, onRecord) else loadAndRunR(topics)(onLoad, onRecord)
+
+  private def loadAndRunBehaviours(partitioned: Boolean): Unit = {
 
     "execute callback when finished loading and keep streaming" in withRunningKafka { implicit kafkaConfig =>
       val (preLoad, postLoad) = records(1 to 15).splitAt(10)
@@ -331,7 +469,7 @@ class TopicLoaderIntSpec extends KafkaSpecBase[IO], KafkaTestContainer[IO] {
           loadState: Ref[IO, Boolean],
           topicState: Ref[IO, Seq[(String, String)]]
       ): IO[Assertion] =
-        loadAndRunR(NonEmptyList.one(testTopic1))(
+        runLoadAndRun(partitioned, NonEmptyList.one(testTopic1))(
           _ => loadState.set(true),
           r => topicState.getAndUpdate(_ :+ r).void
         ).surround {
@@ -361,7 +499,7 @@ class TopicLoaderIntSpec extends KafkaSpecBase[IO], KafkaTestContainer[IO] {
           loadState: Ref[IO, Boolean],
           topicState: Ref[IO, Seq[(String, String)]]
       ): IO[Assertion] =
-        loadAndRunR(NonEmptyList.one(testTopic1))(
+        runLoadAndRun(partitioned, NonEmptyList.one(testTopic1))(
           _ => loadState.set(true),
           r => topicState.getAndUpdate(_ :+ r).void
         ).surround {
@@ -390,7 +528,7 @@ class TopicLoaderIntSpec extends KafkaSpecBase[IO], KafkaTestContainer[IO] {
           loadState: Ref[IO, Boolean],
           topicState: Ref[IO, Seq[(String, String)]]
       ): IO[Assertion] =
-        loadAndRunR(topics)(
+        runLoadAndRun(partitioned, topics)(
           _ => loadState.set(true),
           r => topicState.getAndUpdate(_ :+ r).void
         ).surround {
@@ -412,7 +550,6 @@ class TopicLoaderIntSpec extends KafkaSpecBase[IO], KafkaTestContainer[IO] {
         assertion  <- assertPostLoadRecordsConsumed(loadState, topicState)
       } yield assertion
     }
-
   }
 
 }

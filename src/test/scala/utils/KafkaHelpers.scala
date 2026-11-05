@@ -4,7 +4,6 @@ import java.util.UUID
 
 import base.AsyncIntSpec
 import cats.data.{NonEmptyList, NonEmptySet}
-import cats.effect.std.Supervisor
 import cats.effect.syntax.all.*
 import cats.effect.{Async, Resource}
 import cats.syntax.all.*
@@ -114,15 +113,36 @@ trait KafkaHelpers[F[_]] {
       consumerSettings: ConsumerSettings[F, String, String],
       F: Async[F]
   ): Resource[F, Unit] =
-    Supervisor[F]
-      .evalMap(_.supervise {
-        loadAndRunLoader(topics)(onLoad)
-          .map(recordToTuple)
-          .evalTap(onRecord)
-          .compile
-          .drain
-      })
+    loadAndRunLoader(topics)(onLoad)
+      .map(recordToTuple)
+      .evalTap(onRecord)
+      .compile
+      .drain
+      .background
       .void
+
+  def loadAndRunPartitionedR(topics: NonEmptyList[String])(
+      onLoad: Resource.ExitCase => F[Unit],
+      onRecord: ((String, String)) => F[Unit]
+  )(using
+      consumerSettings: ConsumerSettings[F, String, String],
+      F: Async[F]
+  ): Resource[F, Unit] =
+    loadAndRunPartitionedLoader(topics)(onLoad)
+      .map((_, records) => records.map(recordToTuple).evalTap(onRecord))
+      .parJoinUnbounded
+      .compile
+      .drain
+      .background
+      .void
+
+  def loadAndRunPartitionedLoader(topics: NonEmptyList[String])(onLoad: Resource.ExitCase => F[Unit])(using
+      consumerSettings: ConsumerSettings[F, String, String],
+      F: Async[F]
+  ): Stream[F, (TopicPartition, Stream[F, ConsumerRecord[String, String]])] = {
+    given LoggerFactory[F] = Slf4jFactory.create[F]
+    TopicLoader.loadAndRunPartitioned(topics, consumerSettings)(onLoad)
+  }
 
   def loadAndRunLoader(topics: NonEmptyList[String])(onLoad: Resource.ExitCase => F[Unit])(using
       consumerSettings: ConsumerSettings[F, String, String],
