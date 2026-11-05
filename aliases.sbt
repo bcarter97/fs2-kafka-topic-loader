@@ -5,4 +5,4 @@ addCommandAlias("runFmt", "scalafmtAll; scalafmtSbt")
 addCommandAlias("checkLint", "checkFmt; checkFix")
 addCommandAlias("runLint", "runFmt; runFix")
 
-addCommandAlias("ciBuild", "checkLint; testFull")
+addCommandAlias("ciBuild", "checkLint; testFull; versionPolicyCheck")

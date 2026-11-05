@@ -16,6 +16,21 @@ The software is written in [Scala](https://scala-lang.org/) and is built with [S
 
 The project is built and released for Scala 3. Run `sbt ciBuild` to lint and run both the unit and integration tests, exactly as CI does. The tests start Kafka using [Testcontainers](https://testcontainers.com/), so Docker must be running.
 
+## Versioning and compatibility
+
+Releases follow [early semantic versioning](https://www.scala-lang.org/blog/2021/02/16/preventing-version-conflicts-with-versionscheme.html#early-semver-and-sbt-version-policy). [`sbt-version-policy`](https://github.com/scalacenter/sbt-version-policy) checks every pull request against the previous release, using the compatibility level declared for the next release in `versionPolicyIntention` in [`build.sbt`](./build.sbt). A pull request that intentionally breaks compatibility should also set `versionPolicyIntention` to `Compatibility.None`.
+
+| Next release                 | Before 1.0        | From 1.0          | `versionPolicyIntention`                  |
+|------------------------------|-------------------|-------------------|-------------------------------------------|
+| Breaking                     | `0.2.3` → `0.3.0` | `1.2.3` → `2.0.0` | `Compatibility.None`                      |
+| Binary compatible            | `0.2.3` → `0.2.4` | `1.2.3` → `1.3.0` | `Compatibility.BinaryCompatible`          |
+| Binary and source compatible | `0.2.3` → `0.2.4` | `1.2.3` → `1.2.4` | `Compatibility.BinaryAndSourceCompatible` |
+
+For maintainers:
+
+1. Before tagging a release, check that `versionPolicyIntention` matches the version being released.
+2. After releasing, reset `versionPolicyIntention` to `Compatibility.BinaryCompatible`.
+
 ## Performing a release (for project maintainers)
 
 Automated publishing to Maven Central is not set up yet. CI currently only builds and tests the project. The build
