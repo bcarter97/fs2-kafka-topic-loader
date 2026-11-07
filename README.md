@@ -38,6 +38,14 @@ Partition streams must run within the outer stream. See `LoadExample.kafkaPartit
 
 Read up to the latest offset, fire a callback and continue streaming messages.
 
+See `LoadAndRunExample.kafka` in [`LoadAndRunExample.scala`](./example/src/main/scala/load/LoadAndRunExample.scala).
+
+### `LoadAndRunPartitioned`
+
+Like `LoadAndRun`, but emits one stream per partition. The callback fires once every partition has been loaded. Process
+records within each partition stream, so that the callback fires after the loaded records have been processed. See
+`LoadAndRunExample.kafkaPartitioned` in [`LoadAndRunExample.scala`](./example/src/main/scala/load/LoadAndRunExample.scala).
+
 ## Example
 
 Requires Scala 3.9 or later. Add the following to your `build.sbt`:

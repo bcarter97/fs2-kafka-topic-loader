@@ -1,12 +1,12 @@
 package io.github.bcarter97.fs2.kafka.topicloader
 
 import cats.data.{NonEmptyList, NonEmptyMap}
-import cats.effect.{Async, Resource}
+import cats.effect.{Async, Deferred, Ref, Resource}
 import cats.syntax.all.*
 import cats.{Monad, Show}
 import fs2.kafka.instances.*
 import fs2.kafka.{ConsumerRecord, ConsumerSettings, KafkaConsumer}
-import fs2.{Pipe, Stream}
+import fs2.{Pipe, Pull, Stream}
 import org.apache.kafka.clients.consumer.OffsetAndMetadata
 import org.apache.kafka.common.TopicPartition
 import org.typelevel.log4cats.syntax.*
@@ -117,6 +117,49 @@ trait TopicLoader {
     } yield record
   }
 
+  /** Stream of one stream per partition that loads the specified topics from the beginning, and then continues
+    * streaming new records. The `onLoad` callback is evaluated once every partition has been loaded up to its latest
+    * offset at the time the stream started.
+    *
+    * A partition counts as loaded once its last loaded record has been pulled from its stream, so records should be
+    * processed within each partition stream for `onLoad` to follow their processing. The partition streams must be run
+    * within the scope of the outer stream, e.g. with `parJoin`.
+    *
+    * @param topics
+    *   topics to load
+    * @param consumerSettings
+    *   [[fs2.kafka.ConsumerSettings]] for the given topics
+    * @param onLoad
+    *   A callback that will be evaluated once every partition has been loaded, or with the exit case of the stream if
+    *   it terminates before then
+    */
+  def loadAndRunPartitioned[F[_] : Async : LoggerFactory, K, V](
+      topics: NonEmptyList[String],
+      consumerSettings: ConsumerSettings[F, K, V]
+  )(onLoad: Resource.ExitCase => F[Unit]): Stream[F, (TopicPartition, Stream[F, ConsumerRecord[K, V]])] =
+    for {
+      given Logger[F] <- Stream.eval(LoggerFactory[F].create)
+      loaded          <- Stream.eval(Deferred[F, Unit])
+      completeLoad     = (exitCase: Resource.ExitCase) => loaded.complete(()).ifM(onLoad(exitCase), Async[F].unit)
+      onUnloadedExit   = (exitCase: Resource.ExitCase) =>
+                           exitCase match {
+                             case Resource.ExitCase.Succeeded => Async[F].unit
+                             case other                       => completeLoad(other)
+                           }
+      partition       <- {
+                           for {
+                             consumer   <- KafkaConsumer.stream(consumerSettings)
+                             logOffsets <- Stream
+                                             .eval(logOffsetsForTopics(topics, LoadAll, consumer))
+                                             .flatMap(Stream.fromOption(_))
+                             _          <- Stream.eval(info"log offsets: ${logOffsets.show}")
+                             partition  <- loadAndRunPartitioned(logOffsets, consumer)(
+                                             completeLoad(Resource.ExitCase.Succeeded)
+                                           )
+                           } yield partition.map(_.onFinalizeCase(onUnloadedExit))
+                         }.onFinalizeCase(onUnloadedExit)
+    } yield partition
+
   private def load[F[_] : Async : Logger, K, V](
       topics: NonEmptyList[String],
       strategy: LoadTopicStrategy,
@@ -162,6 +205,48 @@ trait TopicLoader {
 
     logEmpty >> NonEmptyMap.fromMap(nonEmptyOffsets).fold(Stream.empty)(partitionStreams)
   }
+
+  private def loadAndRunPartitioned[F[_] : Async : Logger, K, V](
+      logOffsets: NonEmptyMap[TopicPartition, LogOffsets],
+      consumer: KafkaConsumer[F, K, V]
+  )(onAllLoaded: F[Unit]): Stream[F, (TopicPartition, Stream[F, ConsumerRecord[K, V]])] = {
+    val toLoad = logOffsets.toSortedMap.filter((_, o) => o.highest > o.lowest)
+
+    for {
+      remaining  <- Stream.eval(Ref.of[F, Int](toLoad.size))
+      _          <- Stream.eval(assignOffsets(logOffsets, consumer)(_.lowest))
+      _          <- Stream.eval(Async[F].whenA(toLoad.isEmpty)(onAllLoaded))
+      partitions <- consumer.partitionsMapStream.take(1)
+      partition  <- Stream.emits(partitions.toList.map { (tp, stream) =>
+                      val records = stream.map(_.record)
+
+                      val markLoaded = (offset: Long) =>
+                        info"Finished loading data from ${tp.show} at offset $offset" >>
+                          remaining.updateAndGet(_ - 1).flatMap(n => Async[F].whenA(n == 0)(onAllLoaded))
+
+                      tp -> toLoad.get(tp).fold(records)(o => loadThenRun(records, o.highest - 1)(markLoaded))
+                    })
+    } yield partition
+  }
+
+  private def loadThenRun[F[_], K, V](
+      records: Stream[F, ConsumerRecord[K, V]],
+      lastLoadedOffset: Long
+  )(markLoaded: Long => F[Unit]): Stream[F, ConsumerRecord[K, V]] =
+    records.pull
+      .takeWhile(_.offset < lastLoadedOffset)
+      .flatMap {
+        case None       => Pull.done
+        case Some(rest) =>
+          rest.pull.uncons1.flatMap {
+            case None                                                      => Pull.done
+            case Some((record, tail)) if record.offset == lastLoadedOffset =>
+              Pull.output1(record) >> Pull.eval(markLoaded(record.offset)) >> tail.pull.echo
+            case Some((record, tail))                                      =>
+              Pull.eval(markLoaded(record.offset - 1)) >> Pull.output1(record) >> tail.pull.echo
+          }
+      }
+      .stream
 
   private def assignOffsets[F[_] : Monad : Logger, K, V](
       logOffsets: NonEmptyMap[TopicPartition, LogOffsets],
