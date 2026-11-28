@@ -11,7 +11,7 @@ object Dependencies {
 
   object Fs2 {
     lazy val core  = "co.fs2"        %% "fs2-core"  % "3.16.0"
-    lazy val kafka = "org.typelevel" %% "fs2-kafka" % "4.2.0"
+    lazy val kafka = "org.typelevel" %% "fs2-kafka" % "4.2.1"
   }
 
   lazy val testContainersKafka = "org.testcontainers" % "testcontainers-kafka"          % "2.0.5"
